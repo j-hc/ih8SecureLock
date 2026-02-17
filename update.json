@@ -1,6 +1,6 @@
 {
-	"version": "v1",
-	"versionCode": 1,
-	"zipUrl": "https://github.com/j-hc/ih8SecureLock/releases/latest/download/ih8SecureLock-v1.zip",
+	"version": "v2",
+	"versionCode": 2,
+	"zipUrl": "https://github.com/j-hc/ih8SecureLock/releases/latest/download/ih8SecureLock-v2.zip",
 	"changelog": "https://raw.githubusercontent.com/j-hc/ih8SecureLock/master/README.md"
 }

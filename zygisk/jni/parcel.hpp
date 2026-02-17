@@ -2,9 +2,6 @@
 
 #include <stdint.h>
 
-#define ARR_LEN(a) (sizeof(a) / sizeof((a)[0]))
-#define STR_LEN(a) (ARR_LEN(a) - 1)
-
 struct PParcel {
     size_t error;
     char* data;

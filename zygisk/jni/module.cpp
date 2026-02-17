@@ -1,12 +1,12 @@
 #include <android/log.h>
 #include <errno.h>
+#include <jni.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/sysmacros.h>
 #include <sys/system_properties.h>
 #include <unistd.h>
 
-#include "aidl_codes.h"
 #include "parcel.hpp"
 #include "zygisk.hpp"
 
@@ -16,26 +16,55 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define FLAG_SECURE 0x00002000
-
-#define IWINDOWSESSION_DESC u"android.view.IWindowSession"
-#define IACTIVITYTASKMANAGER_DESC u"android.app.IActivityTaskManager"
+#define ARR_LEN(a) (sizeof(a) / sizeof((a)[0]))
+#define STR_LEN(a) (ARR_LEN(a) - 1)
 
 #define LIBBINDER "libbinder.so"
 
-static AIDLCodes_t AIDLCodes;
-static uint8_t headers_len;
+#define FLAG_SECURE 0x00002000
 
-static bool getAIDLCodes(int sdk) {
-    if (sdk >= 30) headers_len = 3 * sizeof(uint32_t);
-    else if (sdk == 29) headers_len = 2 * sizeof(uint32_t);
-    else headers_len = 1 * sizeof(uint32_t);
+#define I_WINDOW_SESSION "android.view.IWindowSession"
+#define I_WINDOW_SESSION_U16 u"android.view.IWindowSession"
 
-    if (sdk - 29 >= (int)ARR_LEN(aidl_codes_tbl)) {
-        LOGD("<A10 not supported");
-        return false;
+#define I_ACTIVITY_TASKMANAGER "android.app.IActivityTaskManager"
+#define I_ACTIVITY_TASKMANAGER_U16 u"android.app.IActivityTaskManager"
+
+#define STUB(n) (n "$Stub")
+#define TRSCTN(n) ("TRANSACTION_" n)
+
+static uint8_t binder_headers_len;
+
+static uint32_t relayout_code;
+static uint32_t relayoutAsync_code;
+static uint32_t registerScreenCaptureObserver_code;
+
+static uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const char* field_name) {
+    jclass cls = env->FindClass(cls_name);
+    if (cls == nullptr) {
+        env->ExceptionClear();
+        LOGD("ERROR getStaticIntFieldJni: Could not get class '%s'", cls_name);
+        return 0;
     }
-    AIDLCodes = aidl_codes_tbl[sdk - 29];
+    jfieldID field = env->GetStaticFieldID(cls, field_name, "I");
+    if (field == nullptr) {
+        env->ExceptionClear();
+        LOGD("ERROR getStaticIntFieldJni: Could not get field '%s'", field_name);
+        return 0;
+    }
+    jint val = env->GetStaticIntField(cls, field);
+    return val;
+}
+
+static bool getTransactionCodes(JNIEnv* env) {
+    relayout_code = getStaticIntFieldJni(env, STUB("android.view.IWindowSession"), TRSCTN("relayout"));
+    if (relayout_code == 0) return false;
+
+    relayoutAsync_code = getStaticIntFieldJni(env, STUB("android.view.IWindowSession"), TRSCTN("relayoutAsync"));
+    if (relayoutAsync_code == 0) return false;
+
+    registerScreenCaptureObserver_code =
+        getStaticIntFieldJni(env, STUB("android.app.IActivityTaskManager"), TRSCTN("registerScreenCaptureObserver"));
+    if (registerScreenCaptureObserver_code == 0) return false;
     return true;
 }
 
@@ -58,37 +87,29 @@ static bool getBinder(ino_t* inode, dev_t* dev) {
     return false;
 }
 
-bool matchAIDLCode(uint8_t codes[4], uint32_t code) {
-    for (int i = 0; i < 4; i++) {
-        if (codes[i] == 0) return false;
-        if (codes[i] == code) return true;
-    }
-    return false;
-}
-
 int (*transactOrig)(void*, int32_t, uint32_t, void*, void*, uint32_t);
 
 int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* preply, uint32_t flags) {
     auto pparcel = (PParcel*)pdata;
     auto parcel = FakeParcel(pparcel->data);
 
-    if (pparcel->data_size < headers_len + 4) goto out;
-    parcel.skip(headers_len);  // header
+    if (pparcel->data_size < binder_headers_len + 4) goto out;
+    parcel.skip(binder_headers_len);  // header
 
-    if ((matchAIDLCode(AIDLCodes.relayout_code, code) || matchAIDLCode(AIDLCodes.relayoutAsync_code, code)) &&
-        parcel.checkInterface(IWINDOWSESSION_DESC, STR_LEN(IWINDOWSESSION_DESC))) {
-        // remove FLAG_SECURE
+    if ((code == relayout_code || code == relayoutAsync_code) &&
+        parcel.checkInterface(I_WINDOW_SESSION_U16, STR_LEN(I_WINDOW_SESSION_U16))) {
+        // remove FLAG_SECURE mask
 
         parcel.skipFlatObj();               // IWindow flat obj
         parcel.skip(7 * sizeof(uint32_t));  // x,y,horizontalWeight,verticalWeight,width,height,type
         auto* flags = parcel.peekInt32Ref();
         *flags &= ~FLAG_SECURE;
 
-        LOGD("bypassed secure lock");
-    } else if (matchAIDLCode(AIDLCodes.registerScreenCaptureObserver_code, code) &&
-               parcel.checkInterface(IACTIVITYTASKMANAGER_DESC, STR_LEN(IACTIVITYTASKMANAGER_DESC))) {
+        LOGD("Bypassed secure lock");
+    } else if (code == registerScreenCaptureObserver_code &&
+               parcel.checkInterface(I_ACTIVITY_TASKMANAGER_U16, STR_LEN(I_ACTIVITY_TASKMANAGER_U16))) {
         // early-return from capture listener
-        LOGD("bypassed screenshot listener");
+        LOGD("Bypassed screenshot listener");
         return 0;
     }
 
@@ -122,6 +143,12 @@ static bool hookBinder(zygisk::Api* api) {
     return true;
 }
 
+static uint8_t getBinderHeadersLen(int sdk) {
+    if (sdk >= 30) return 3 * sizeof(uint32_t);
+    else if (sdk == 29) return 2 * sizeof(uint32_t);
+    else return 1 * sizeof(uint32_t);
+}
+
 class ih8SecureLock : public zygisk::ModuleBase {
    public:
     void onLoad(zygisk::Api* api, JNIEnv* env) override {
@@ -133,7 +160,8 @@ class ih8SecureLock : public zygisk::ModuleBase {
         int sdk = getSDK();
 
         if (sdk == 0) return false;
-        if (!getAIDLCodes(sdk)) return false;
+        binder_headers_len = getBinderHeadersLen(sdk);
+        if (!getTransactionCodes(env)) return false;
         if (!hookBinder(this->api)) return false;
         return true;
     }

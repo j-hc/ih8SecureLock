@@ -1,7 +1,7 @@
 *.zip
 *.so
 /*.sh
-test*
+/tests
 *.log
-aidl*
+/aidl
 .clangd

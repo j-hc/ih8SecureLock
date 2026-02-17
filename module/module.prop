@@ -1,6 +1,6 @@
 id=ih8SecureLock
 name=ih8SecureLock
-version=v2
-versionCode=2
+version=v3
+versionCode=3
 author=j-hc
 description=Prevent apps from blocking and listening to your screenshots with Zygisk

@@ -58,10 +58,10 @@ static bool getBinder(ino_t* inode, dev_t* dev) {
     return false;
 }
 
-bool matchAIDLCode(uint8_t quad[4], uint8_t code) {
+bool matchAIDLCode(uint8_t codes[4], uint32_t code) {
     for (int i = 0; i < 4; i++) {
-        if (quad[i] == 0) return false;
-        if (quad[i] == code) return true;
+        if (codes[i] == 0) return false;
+        if (codes[i] == code) return true;
     }
     return false;
 }

@@ -1,0 +1,7 @@
+*.zip
+*.so
+/*.sh
+test*
+*.log
+aidl*
+.clangd

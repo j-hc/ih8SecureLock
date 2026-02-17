@@ -4,3 +4,4 @@ version=v3
 versionCode=3
 author=j-hc
 description=Prevent apps from blocking and listening to your screenshots with Zygisk
+updateJson=https://raw.githubusercontent.com/j-hc/ih8SecureLock/master/update.json

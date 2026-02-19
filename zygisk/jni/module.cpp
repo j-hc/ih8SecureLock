@@ -25,15 +25,12 @@
 
 #define I_WINDOW_SESSION "android.view.IWindowSession"
 #define I_WINDOW_SESSION_U16 u"android.view.IWindowSession"
-
 #define I_ACTIVITY_TASKMANAGER "android.app.IActivityTaskManager"
 #define I_ACTIVITY_TASKMANAGER_U16 u"android.app.IActivityTaskManager"
-
 #define STUB(n) (n "$Stub")
 #define TRSCTN(n) ("TRANSACTION_" n)
 
 static uint8_t binder_headers_len;
-
 static uint32_t relayout_code;
 static uint32_t relayoutAsync_code;
 static uint32_t registerScreenCaptureObserver_code;
@@ -48,7 +45,7 @@ static uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const ch
     jfieldID field = env->GetStaticFieldID(cls, field_name, "I");
     if (field == nullptr) {
         env->ExceptionClear();
-        LOGD("ERROR getStaticIntFieldJni: Could not get field '%s'", field_name);
+        LOGD("ERROR getStaticIntFieldJni: Could not get field %s.%s", cls_name, field_name);
         return 0;
     }
     jint val = env->GetStaticIntField(cls, field);
@@ -56,14 +53,14 @@ static uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const ch
 }
 
 static bool getTransactionCodes(JNIEnv* env) {
-    relayout_code = getStaticIntFieldJni(env, STUB("android.view.IWindowSession"), TRSCTN("relayout"));
+    relayout_code = getStaticIntFieldJni(env, STUB(I_WINDOW_SESSION), TRSCTN("relayout"));
     if (relayout_code == 0) return false;
 
-    relayoutAsync_code = getStaticIntFieldJni(env, STUB("android.view.IWindowSession"), TRSCTN("relayoutAsync"));
+    relayoutAsync_code = getStaticIntFieldJni(env, STUB(I_WINDOW_SESSION), TRSCTN("relayoutAsync"));
     if (relayoutAsync_code == 0) return false;
 
     registerScreenCaptureObserver_code =
-        getStaticIntFieldJni(env, STUB("android.app.IActivityTaskManager"), TRSCTN("registerScreenCaptureObserver"));
+        getStaticIntFieldJni(env, STUB(I_ACTIVITY_TASKMANAGER), TRSCTN("registerScreenCaptureObserver"));
     if (registerScreenCaptureObserver_code == 0) return false;
     return true;
 }
@@ -93,27 +90,32 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
     auto pparcel = (PParcel*)pdata;
     auto parcel = FakeParcel(pparcel->data);
 
-    if (pparcel->data_size < binder_headers_len + 4) goto out;
+    if (pparcel->data_size < binder_headers_len + 4) {
+        return transactOrig(self, handle, code, pdata, preply, flags);
+    }
     parcel.skip(binder_headers_len);  // header
 
+    auto descLen = parcel.readInt32();
+    auto desc = parcel.readString16(descLen);
+
     if ((code == relayout_code || code == relayoutAsync_code) &&
-        parcel.checkInterface(I_WINDOW_SESSION_U16, STR_LEN(I_WINDOW_SESSION_U16))) {
+        STR_LEN(I_WINDOW_SESSION_U16) == descLen &&
+        memcmp(desc, I_WINDOW_SESSION_U16, descLen * sizeof(char16_t)) == 0) {
         // remove FLAG_SECURE mask
 
         parcel.skipFlatObj();               // IWindow flat obj
         parcel.skip(7 * sizeof(uint32_t));  // x,y,horizontalWeight,verticalWeight,width,height,type
         auto* flags = parcel.peekInt32Ref();
         *flags &= ~FLAG_SECURE;
-
         LOGD("Bypassed secure lock");
+
     } else if (code == registerScreenCaptureObserver_code &&
-               parcel.checkInterface(I_ACTIVITY_TASKMANAGER_U16, STR_LEN(I_ACTIVITY_TASKMANAGER_U16))) {
+               STR_LEN(I_ACTIVITY_TASKMANAGER_U16) == descLen &&
+               memcmp(desc, I_ACTIVITY_TASKMANAGER_U16, descLen * sizeof(char16_t)) == 0) {
         // early-return from capture listener
         LOGD("Bypassed screenshot listener");
         return 0;
     }
-
-out:
     return transactOrig(self, handle, code, pdata, preply, flags);
 }
 
@@ -123,7 +125,12 @@ static int getSDK() {
         LOGD("ERROR __system_property_get: %s", strerror(errno));
         return 0;
     }
-    return atoi(sdk_str);
+    int sdk = atoi(sdk_str);
+    if (sdk == 0) {
+        LOGD("ERROR getSDK: could not get SDK '%s'", sdk_str);
+        return 0;
+    }
+    return sdk;
 }
 
 static bool hookBinder(zygisk::Api* api) {
@@ -149,6 +156,15 @@ static uint8_t getBinderHeadersLen(int sdk) {
     else return 1 * sizeof(uint32_t);
 }
 
+static bool run(zygisk::Api* api, JNIEnv* env) {
+    int sdk = getSDK();
+    if (sdk == 0) return false;
+    binder_headers_len = getBinderHeadersLen(sdk);
+    if (!getTransactionCodes(env)) return false;
+    if (!hookBinder(api)) return false;
+    return true;
+}
+
 class ih8SecureLock : public zygisk::ModuleBase {
    public:
     void onLoad(zygisk::Api* api, JNIEnv* env) override {
@@ -156,18 +172,8 @@ class ih8SecureLock : public zygisk::ModuleBase {
         this->env = env;
     }
 
-    bool run() {
-        int sdk = getSDK();
-
-        if (sdk == 0) return false;
-        binder_headers_len = getBinderHeadersLen(sdk);
-        if (!getTransactionCodes(env)) return false;
-        if (!hookBinder(this->api)) return false;
-        return true;
-    }
-
     void preAppSpecialize(zygisk::AppSpecializeArgs* args) override {
-        if (!run()) {
+        if (!run(api, env)) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
             return;
         }

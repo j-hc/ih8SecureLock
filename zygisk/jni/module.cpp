@@ -23,10 +23,8 @@
 
 #define FLAG_SECURE 0x00002000
 
-#define I_WINDOW_SESSION "android.view.IWindowSession"
-#define I_WINDOW_SESSION_U16 u"android.view.IWindowSession"
-#define I_ACTIVITY_TASKMANAGER "android.app.IActivityTaskManager"
-#define I_ACTIVITY_TASKMANAGER_U16 u"android.app.IActivityTaskManager"
+#define I_WINDOW_SESSION_DESC u"android.view.IWindowSession"
+#define I_ACTIVITY_TASKMANAGER_DESC u"android.app.IActivityTaskManager"
 #define STUB(n) (n "$Stub")
 #define TRSCTN(n) ("TRANSACTION_" n)
 
@@ -53,14 +51,14 @@ static uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const ch
 }
 
 static bool getTransactionCodes(JNIEnv* env) {
-    relayout_code = getStaticIntFieldJni(env, STUB(I_WINDOW_SESSION), TRSCTN("relayout"));
+    relayout_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayout"));
     if (relayout_code == 0) return false;
 
-    relayoutAsync_code = getStaticIntFieldJni(env, STUB(I_WINDOW_SESSION), TRSCTN("relayoutAsync"));
+    relayoutAsync_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayoutAsync"));
     if (relayoutAsync_code == 0) return false;
 
     registerScreenCaptureObserver_code =
-        getStaticIntFieldJni(env, STUB(I_ACTIVITY_TASKMANAGER), TRSCTN("registerScreenCaptureObserver"));
+        getStaticIntFieldJni(env, STUB("android/app/IActivityTaskManager"), TRSCTN("registerScreenCaptureObserver"));
     if (registerScreenCaptureObserver_code == 0) return false;
     return true;
 }
@@ -99,8 +97,8 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
     auto desc = parcel.readString16(descLen);
 
     if ((code == relayout_code || code == relayoutAsync_code) &&
-        STR_LEN(I_WINDOW_SESSION_U16) == descLen &&
-        memcmp(desc, I_WINDOW_SESSION_U16, descLen * sizeof(char16_t)) == 0) {
+        STR_LEN(I_WINDOW_SESSION_DESC) == descLen &&
+        memcmp(desc, I_WINDOW_SESSION_DESC, descLen * sizeof(char16_t)) == 0) {
         // remove FLAG_SECURE mask
 
         parcel.skipFlatObj();               // IWindow flat obj
@@ -110,8 +108,8 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
         LOGD("Bypassed secure lock");
 
     } else if (code == registerScreenCaptureObserver_code &&
-               STR_LEN(I_ACTIVITY_TASKMANAGER_U16) == descLen &&
-               memcmp(desc, I_ACTIVITY_TASKMANAGER_U16, descLen * sizeof(char16_t)) == 0) {
+               STR_LEN(I_ACTIVITY_TASKMANAGER_DESC) == descLen &&
+               memcmp(desc, I_ACTIVITY_TASKMANAGER_DESC, descLen * sizeof(char16_t)) == 0) {
         // early-return from capture listener
         LOGD("Bypassed screenshot listener");
         return 0;

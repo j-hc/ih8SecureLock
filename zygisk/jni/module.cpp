@@ -117,20 +117,6 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
     return transactOrig(self, handle, code, pdata, preply, flags);
 }
 
-static int getSDK() {
-    char sdk_str[2];
-    if (!__system_property_get("ro.build.version.sdk", sdk_str)) {
-        LOGD("ERROR __system_property_get: %s", strerror(errno));
-        return 0;
-    }
-    int sdk = atoi(sdk_str);
-    if (sdk == 0) {
-        LOGD("ERROR getSDK: could not get SDK '%s'", sdk_str);
-        return 0;
-    }
-    return sdk;
-}
-
 static bool hookBinder(zygisk::Api* api) {
     ino_t inode;
     dev_t dev;
@@ -155,8 +141,11 @@ static uint8_t getBinderHeadersLen(int sdk) {
 }
 
 static bool run(zygisk::Api* api, JNIEnv* env) {
-    int sdk = getSDK();
-    if (sdk == 0) return false;
+    int sdk = android_get_device_api_level();
+    if (sdk <= 0) {
+        LOGD("ERROR android_get_device_api_level: %d", sdk);
+        return false;
+    }
     binder_headers_len = getBinderHeadersLen(sdk);
     if (!getTransactionCodes(env)) return false;
     if (!hookBinder(api)) return false;

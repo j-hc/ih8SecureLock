@@ -33,6 +33,8 @@ static uint32_t relayout_code;
 static uint32_t relayoutAsync_code;
 static uint32_t registerScreenCaptureObserver_code;
 
+static const char* PROC_NAME;
+
 static uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const char* field_name) {
     jclass cls = env->FindClass(cls_name);
     if (cls == nullptr) {
@@ -104,14 +106,15 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
         parcel.skipFlatObj();               // IWindow flat obj
         parcel.skip(7 * sizeof(uint32_t));  // x,y,horizontalWeight,verticalWeight,width,height,type
         auto* flags = parcel.peekInt32Ref();
-        *flags &= ~FLAG_SECURE;
-        LOGD("Bypassed secure lock");
-
+        if (*flags & FLAG_SECURE) {
+            *flags &= ~FLAG_SECURE;
+            LOGD("%s: Bypassed secure lock", PROC_NAME);
+        }
     } else if (code == registerScreenCaptureObserver_code &&
                STR_LEN(I_ACTIVITY_TASKMANAGER_DESC) == descLen &&
                memcmp(desc, I_ACTIVITY_TASKMANAGER_DESC, descLen * sizeof(char16_t)) == 0) {
         // early-return from capture listener
-        LOGD("Bypassed screenshot listener");
+        LOGD("%s: Bypassed screenshot listener", PROC_NAME);
         return 0;
     }
     return transactOrig(self, handle, code, pdata, preply, flags);
@@ -165,9 +168,8 @@ class ih8SecureLock : public zygisk::ModuleBase {
             return;
         }
 
-        const char* process = env->GetStringUTFChars(args->nice_name, nullptr);
-        LOGD("Loaded for %s", process);
-        env->ReleaseStringUTFChars(args->nice_name, process);
+        PROC_NAME = env->GetStringUTFChars(args->nice_name, nullptr);
+        LOGD("Loaded for %s", PROC_NAME);
     }
 
    private:

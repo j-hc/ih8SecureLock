@@ -25,13 +25,11 @@
 
 #define I_WINDOW_SESSION_DESC u"android.view.IWindowSession"
 #define I_ACTIVITY_TASKMANAGER_DESC u"android.app.IActivityTaskManager"
-#define STUB(n) (n "$Stub")
-#define TRSCTN(n) ("TRANSACTION_" n)
 
-static uint8_t binder_headers_len;
-static uint32_t relayout_code;
-static uint32_t relayoutAsync_code;
-static uint32_t registerScreenCaptureObserver_code;
+static uint8_t binder_headers_len = 0;
+static uint32_t relayout_code = 0;
+static uint32_t relayoutAsync_code = 0;
+static uint32_t registerScreenCaptureObserver_code = 0;
 
 static const char* PROC_NAME;
 
@@ -54,15 +52,12 @@ static uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const ch
 
 static bool getTransactionCodes(JNIEnv* env) {
     relayout_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayout"));
-    if (relayout_code == 0) return false;
-
     relayoutAsync_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayoutAsync"));
-    if (relayoutAsync_code == 0) return false;
-
     registerScreenCaptureObserver_code =
         getStaticIntFieldJni(env, STUB("android/app/IActivityTaskManager"), TRSCTN("registerScreenCaptureObserver"));
-    if (registerScreenCaptureObserver_code == 0) return false;
-    return true;
+
+    if (registerScreenCaptureObserver_code == 0 && relayoutAsync_code == 0 && relayout_code == 0) return false;
+    else return true;
 }
 
 static bool getBinder(ino_t* inode, dev_t* dev) {
@@ -135,12 +130,6 @@ static bool hookBinder(zygisk::Api* api) {
         return false;
     }
     return true;
-}
-
-static uint8_t getBinderHeadersLen(int sdk) {
-    if (sdk >= 30) return 3 * sizeof(uint32_t);
-    else if (sdk == 29) return 2 * sizeof(uint32_t);
-    else return 1 * sizeof(uint32_t);
 }
 
 static bool run(zygisk::Api* api, JNIEnv* env) {

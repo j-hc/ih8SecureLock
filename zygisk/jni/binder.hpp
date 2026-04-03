@@ -1,6 +1,8 @@
 #pragma once
 
+#include <jni.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #if defined(__LP64__)
 #define FLAT_BINDER_OBJ_SIZE 24
@@ -57,8 +59,16 @@ inline char16_t* FakeParcel::readString16(uint32_t len) {
     return s;
 }
 
-static inline size_t getBinderHeadersLen(int sdk) {
+inline size_t getBinderHeadersLen(int sdk) {
     if (sdk >= 30) return 3 * sizeof(uint32_t);
     else if (sdk == 29) return 2 * sizeof(uint32_t);
     else return 1 * sizeof(uint32_t);
 }
+
+bool getMapping(const char* lib, ino_t* inode, dev_t* dev);
+
+uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const char* field_name);
+
+void companionSendFile(const char* path, int remote_fd);
+
+bool readFullFromFd(int fd, void* buf, off_t size);

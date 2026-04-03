@@ -1,13 +1,8 @@
 #include <android/log.h>
-#include <errno.h>
 #include <jni.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/sysmacros.h>
-#include <sys/system_properties.h>
-#include <unistd.h>
 
-#include "parcel.hpp"
+#include "binder.hpp"
 #include "zygisk.hpp"
 
 #define LOGD(fmt, ...) \
@@ -18,8 +13,6 @@
 
 #define ARR_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #define STR_LEN(a) (ARR_LEN(a) - 1)
-
-#define LIBBINDER "libbinder.so"
 
 #define FLAG_SECURE 0x00002000
 
@@ -33,23 +26,6 @@ static uint32_t registerScreenCaptureObserver_code = 0;
 
 static const char* PROC_NAME = "";
 
-static uint32_t getStaticIntFieldJni(JNIEnv* env, const char* cls_name, const char* field_name) {
-    jclass cls = env->FindClass(cls_name);
-    if (cls == nullptr) {
-        env->ExceptionClear();
-        LOGD("WARN getStaticIntFieldJni: Could not get class '%s'", cls_name);
-        return 0;
-    }
-    jfieldID field = env->GetStaticFieldID(cls, field_name, "I");
-    if (field == nullptr) {
-        env->ExceptionClear();
-        LOGD("WARN getStaticIntFieldJni: Could not get field %s.%s", cls_name, field_name);
-        return 0;
-    }
-    jint val = env->GetStaticIntField(cls, field);
-    return val;
-}
-
 static bool getTransactionCodes(JNIEnv* env) {
     relayout_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayout"));
     relayoutAsync_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayoutAsync"));
@@ -61,28 +37,6 @@ static bool getTransactionCodes(JNIEnv* env) {
         return false;
     }
     return true;
-}
-
-static bool getBinder(ino_t* inode, dev_t* dev) {
-    FILE* fp = fopen("/proc/self/maps", "r");
-    if (!fp) {
-        LOGD("ERROR fopen: %s", strerror(errno));
-        return false;
-    }
-    char mapbuf[256], flags[8];
-    while (fgets(mapbuf, sizeof(mapbuf), fp)) {
-        unsigned int dev_major, dev_minor;
-        int cur = 0;
-        sscanf(mapbuf, "%*s %s %*x %x:%x %lu %*s%n", flags, &dev_major, &dev_minor, inode, &cur);
-        if (cur < (int)STR_LEN(LIBBINDER)) continue;
-        if (memcmp(&mapbuf[cur - STR_LEN(LIBBINDER)], LIBBINDER, STR_LEN(LIBBINDER)) == 0 && flags[2] == 'x') {
-            *dev = makedev(dev_major, dev_minor);
-            fclose(fp);
-            return true;
-        }
-    }
-    fclose(fp);
-    return false;
 }
 
 int (*transactOrig)(void*, int32_t, uint32_t, void*, void*, uint32_t);
@@ -128,7 +82,7 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
 static bool hookBinder(zygisk::Api* api) {
     ino_t inode;
     dev_t dev;
-    if (!getBinder(&inode, &dev)) {
+    if (!getMapping("libbinder.so", &inode, &dev)) {
         LOGD("ERROR: Could not get libbinder");
         return false;
     }
@@ -160,7 +114,7 @@ class ih8SecureLock : public zygisk::ModuleBase {
         this->env = env;
     }
 
-    void preAppSpecialize(zygisk::AppSpecializeArgs* args) override {
+    void postAppSpecialize(const zygisk::AppSpecializeArgs* args) override {
         PROC_NAME = env->GetStringUTFChars(args->nice_name, nullptr);
         if (!run(api, env)) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);

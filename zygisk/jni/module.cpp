@@ -114,14 +114,19 @@ class ih8SecureLock : public zygisk::ModuleBase {
         this->env = env;
     }
 
+    void preServerSpecialize(zygisk::ServerSpecializeArgs* args) override {
+        (void)args;
+        api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
+    }
+
     void postAppSpecialize(const zygisk::AppSpecializeArgs* args) override {
         PROC_NAME = env->GetStringUTFChars(args->nice_name, nullptr);
         if (!run(api, env)) {
             api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
             env->ReleaseStringUTFChars(args->nice_name, PROC_NAME);
-            return;
+        } else {
+            LOGD("Loaded");
         }
-        LOGD("Loaded");
     }
 
    private:

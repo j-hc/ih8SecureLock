@@ -56,17 +56,17 @@ void companionSendFile(const char* path, int remote_fd) {
     int fd = open(path, O_RDONLY);
     if (fd == -1) {
         LOGD("ERROR open: %s", strerror(errno));
-        goto bail;
+        goto defer;
     }
 
     struct stat st;
     if (fstat(fd, &st) == -1) {
         LOGD("ERROR fstat: %s", strerror(errno));
-        goto bail;
+        goto defer;
     }
     size = st.st_size;
 
-bail:
+defer:
     if (write(remote_fd, &size, sizeof(size)) < 0) {
         LOGD("ERROR write: %s", strerror(errno));
         size = 0;

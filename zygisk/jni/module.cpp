@@ -22,6 +22,8 @@
 static int sdk = 0;
 static uint32_t relayout_code = 0;
 static uint32_t relayoutAsync_code = 0;
+static uint32_t relayout2_code = 0;
+static uint32_t relayoutAsync2_code = 0;
 static uint32_t registerScreenCaptureObserver_code = 0;
 
 static const char* PROC_NAME = "";
@@ -31,6 +33,14 @@ static bool getTransactionCodes(JNIEnv* env) {
     relayoutAsync_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayoutAsync"));
     registerScreenCaptureObserver_code =
         getStaticIntFieldJni(env, STUB("android/app/IActivityTaskManager"), TRSCTN("registerScreenCaptureObserver"));
+
+    // Optional, introduced since 37, maybe removed in the future.
+    // See
+    // https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-17.0.0_r1/core/java/android/view/IWindowSession.aidl#93
+    relayout2_code = getStaticIntFieldJni(
+        env, STUB("android/view/IWindowSession"), TRSCTN("relayout2"));
+    relayoutAsync2_code = getStaticIntFieldJni(
+        env, STUB("android/view/IWindowSession"), TRSCTN("relayoutAsync2"));
 
     if (registerScreenCaptureObserver_code == 0 && relayoutAsync_code == 0 && relayout_code == 0) {
         LOGD("ERROR getTransactionCodes: Could not get any transaction codes");
@@ -54,7 +64,9 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
     auto descLen = parcel.readInt32();
     auto desc = parcel.readString16(descLen);
 
-    if ((code == relayout_code || code == relayoutAsync_code) &&
+    if ((code == relayout_code || code == relayoutAsync_code ||
+         (0 != relayout2_code && code == relayout2_code) ||
+         (0 != relayoutAsync2_code && code == relayoutAsync2_code)) &&
         STR_LEN(I_WINDOW_SESSION_DESC) == descLen &&
         memcmp(desc, I_WINDOW_SESSION_DESC, descLen * sizeof(char16_t)) == 0) {
         // remove FLAG_SECURE mask

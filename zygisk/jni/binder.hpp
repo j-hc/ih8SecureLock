@@ -10,8 +10,15 @@
 #define FLAT_BINDER_OBJ_SIZE 16
 #endif
 
-#define STUB(n) (n "$Stub")
-#define TRSCTN(n) ("TRANSACTION_" n)
+#define ARR_LEN(a) (sizeof(a) / sizeof((a)[0]))
+#define STR_LEN(a) (ARR_LEN(a) - 1)
+
+#define BINDER_STUB(n) (n "$Stub")
+#define BINDER_TRSCTN(n) ("TRANSACTION_" n)
+
+#define BINDER_DESC_CMP(descLit, desc, descLen) \
+    (STR_LEN(descLit) == (descLen) &&           \
+     memcmp((desc), (descLit), (descLen) * sizeof(char16_t)) == 0)
 
 struct PParcel {
     size_t error;
@@ -22,10 +29,11 @@ struct PParcel {
 struct FakeParcel {
    private:
     char* data;
+    size_t data_size;
     uint32_t cur;
 
    public:
-    FakeParcel(char* data);
+    FakeParcel(char* data, size_t data_size);
 
     void skip(uint32_t n);
     uint32_t getCursor();
@@ -36,24 +44,27 @@ struct FakeParcel {
     char16_t* readString16(uint32_t len);
 };
 
-inline FakeParcel::FakeParcel(char* data) : data(data), cur(0) {}
+inline FakeParcel::FakeParcel(char* data, size_t data_size) : data(data), data_size(data_size), cur(0) {}
 
 inline void FakeParcel::skip(uint32_t n) { cur += n; }
 inline uint32_t FakeParcel::getCursor() { return cur; }
 inline void FakeParcel::skipFlatObj() { skip(FLAT_BINDER_OBJ_SIZE); }
 
 inline uint32_t* FakeParcel::peekInt32Ref() {
+    if (cur + sizeof(uint32_t) > data_size) return nullptr;
     uint32_t* i = ((uint32_t*)(data + cur));
     return i;
 }
 
 inline uint32_t FakeParcel::readInt32() {
+    if (cur + sizeof(uint32_t) > data_size) return 0;
     uint32_t i = *((uint32_t*)(data + cur));
     skip(sizeof(i));
     return i;
 }
 
 inline char16_t* FakeParcel::readString16(uint32_t len) {
+    if (len == 0 || cur + len > data_size) return nullptr;
     char16_t* s = (char16_t*)(data + cur);
     skip((len + 1) * sizeof(char16_t));  // len+1 (null u16)
     return s;

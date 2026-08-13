@@ -11,9 +11,6 @@
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define ARR_LEN(a) (sizeof(a) / sizeof((a)[0]))
-#define STR_LEN(a) (ARR_LEN(a) - 1)
-
 #define FLAG_SECURE 0x00002000
 
 #define I_WINDOW_SESSION_DESC u"android.view.IWindowSession"
@@ -29,17 +26,17 @@ static uint32_t registerScreenCaptureObserver_code = 0;
 static const char* PROC_NAME = "";
 
 static bool getTransactionCodes(JNIEnv* env) {
-    relayout_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayout"));
-    relayoutAsync_code = getStaticIntFieldJni(env, STUB("android/view/IWindowSession"), TRSCTN("relayoutAsync"));
+    relayout_code = getStaticIntFieldJni(env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayout"));
+    relayoutAsync_code = getStaticIntFieldJni(env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayoutAsync"));
     registerScreenCaptureObserver_code =
-        getStaticIntFieldJni(env, STUB("android/app/IActivityTaskManager"), TRSCTN("registerScreenCaptureObserver"));
+        getStaticIntFieldJni(env, BINDER_STUB("android/app/IActivityTaskManager"), BINDER_TRSCTN("registerScreenCaptureObserver"));
 
     // Optional, introduced since 37, maybe removed in the future.
     // https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-17.0.0_r1/core/java/android/view/IWindowSession.aidl#93
     relayout2_code = getStaticIntFieldJni(
-        env, STUB("android/view/IWindowSession"), TRSCTN("relayout2"));
+        env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayout2"));
     relayoutAsync2_code = getStaticIntFieldJni(
-        env, STUB("android/view/IWindowSession"), TRSCTN("relayoutAsync2"));
+        env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayoutAsync2"));
 
     if (registerScreenCaptureObserver_code == 0 && relayoutAsync_code == 0 &&
         relayout_code == 0 && relayoutAsync2_code == 0 && relayout2_code == 0) {
@@ -53,21 +50,21 @@ int (*transactOrig)(void*, int32_t, uint32_t, void*, void*, uint32_t);
 
 int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* preply, uint32_t flags) {
     auto pparcel = (PParcel*)pdata;
-    auto parcel = FakeParcel(pparcel->data);
+    auto parcel = FakeParcel(pparcel->data, pparcel->data_size);
 
     size_t binder_headers_len = getBinderHeadersLen(sdk);
-    if (pparcel->data_size < binder_headers_len + 4) {
-        return transactOrig(self, handle, code, pdata, preply, flags);
-    }
     parcel.skip(binder_headers_len);  // header
 
     auto descLen = parcel.readInt32();
     auto desc = parcel.readString16(descLen);
+    if (desc == nullptr) {
+        LOGD("ERROR: desc == NULL");
+        return transactOrig(self, handle, code, pdata, preply, flags);
+    }
 
     if ((code == relayout_code || code == relayoutAsync_code ||
          code == relayout2_code || code == relayoutAsync2_code) &&
-        STR_LEN(I_WINDOW_SESSION_DESC) == descLen &&
-        memcmp(desc, I_WINDOW_SESSION_DESC, descLen * sizeof(char16_t)) == 0) {
+        BINDER_DESC_CMP(I_WINDOW_SESSION_DESC, desc, descLen)) {
         // remove FLAG_SECURE mask
 
         parcel.skipFlatObj();                              // IWindow flat obj
@@ -75,14 +72,15 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
         parcel.skip(4 * sizeof(uint32_t));                 // LayoutParams
         parcel.skip(3 * sizeof(uint32_t));                 // requestedWidth, requestedHeight, viewVisibility
 
-        auto* flags = parcel.peekInt32Ref();
-        if (*flags & FLAG_SECURE) {
+        auto flags = parcel.peekInt32Ref();
+        if (flags == nullptr) {
+            LOGD("ERROR: flags == NULL");
+        } else if (*flags & FLAG_SECURE) {
             *flags &= ~FLAG_SECURE;
             LOGD("Bypassed secure lock");
         }
     } else if (code == registerScreenCaptureObserver_code &&
-               STR_LEN(I_ACTIVITY_TASKMANAGER_DESC) == descLen &&
-               memcmp(desc, I_ACTIVITY_TASKMANAGER_DESC, descLen * sizeof(char16_t)) == 0) {
+               BINDER_DESC_CMP(I_ACTIVITY_TASKMANAGER_DESC, desc, descLen)) {
         // early-return from capture listener
         LOGD("Bypassed screenshot listener");
         return 0;

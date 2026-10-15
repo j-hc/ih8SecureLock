@@ -64,8 +64,10 @@ inline uint32_t FakeParcel::readInt32() {
 }
 
 inline char16_t* FakeParcel::readString16(uint32_t len) {
-    if (len == 0 || cur + len > data_size) return nullptr;
+    if (len == 0 || len > 256 * 2) return nullptr;
+    if (cur > data_size || (len + 1) * sizeof(char16_t) > data_size - cur) return nullptr;
     char16_t* s = (char16_t*)(data + cur);
+    if (s[len] != 0) return nullptr;
     skip((len + 1) * sizeof(char16_t));  // len+1 (null u16)
     return s;
 }

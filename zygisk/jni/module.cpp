@@ -31,12 +31,14 @@ static bool getTransactionCodes(JNIEnv* env) {
     registerScreenCaptureObserver_code =
         getStaticIntFieldJni(env, BINDER_STUB("android/app/IActivityTaskManager"), BINDER_TRSCTN("registerScreenCaptureObserver"));
 
-    // Optional, introduced since 37, maybe removed in the future.
-    // https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-17.0.0_r1/core/java/android/view/IWindowSession.aidl#93
-    relayout2_code = getStaticIntFieldJni(
-        env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayout2"));
-    relayoutAsync2_code = getStaticIntFieldJni(
-        env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayoutAsync2"));
+    if (sdk >= 37) {
+        // Optional, introduced since 37, maybe removed in the future.
+        // https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-17.0.0_r1/core/java/android/view/IWindowSession.aidl#93
+        relayout2_code = getStaticIntFieldJni(
+            env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayout2"));
+        relayoutAsync2_code = getStaticIntFieldJni(
+            env, BINDER_STUB("android/view/IWindowSession"), BINDER_TRSCTN("relayoutAsync2"));
+    }
 
     if (registerScreenCaptureObserver_code == 0 && relayoutAsync_code == 0 &&
         relayout_code == 0 && relayoutAsync2_code == 0 && relayout2_code == 0) {
@@ -56,9 +58,12 @@ int transactHook(void* self, int32_t handle, uint32_t code, void* pdata, void* p
     parcel.skip(binder_headers_len);  // header
 
     auto descLen = parcel.readInt32();
+    if (descLen == 0) {
+        return transactOrig(self, handle, code, pdata, preply, flags);
+    }
     auto desc = parcel.readString16(descLen);
     if (desc == nullptr) {
-        LOGD("ERROR: desc == NULL");
+        LOGD("ERROR: desc == NULL (%d, %zu)", descLen, pparcel->data_size);
         return transactOrig(self, handle, code, pdata, preply, flags);
     }
 
